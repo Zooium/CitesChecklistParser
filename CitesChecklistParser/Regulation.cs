@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace CitesChecklistParser
 {
@@ -24,7 +26,11 @@ namespace CitesChecklistParser
 
         public string Subspecie { get; set; }
 
-        public Regulation(int ID, string Listing, string Rank, string Phylum, string Class, string Order, string Family, string Genus, string Specie, string Subspecie)
+        public string[] AltNames { get; set; }
+
+        public string[] SynonymNames { get; set; }
+
+        public Regulation(int ID, string Listing, string Rank, string Phylum, string Class, string Order, string Family, string Genus, string Specie, string Subspecie, string[] AltNames, string[] SynonymNames)
         {
             this.ID = ID;
             this.Listing = Listing;
@@ -36,23 +42,102 @@ namespace CitesChecklistParser
             this.Genus = Genus;
             this.Specie = Specie != null ? Genus + " " + Specie : null;
             this.Subspecie = Subspecie != null ? Genus + " " + Specie + " " + Subspecie : null;
+            this.AltNames = AltNames;
+            this.SynonymNames = SynonymNames;
+        }
+
+        public string ResourceType()
+        {
+            switch (this.Rank)
+            {
+                case "subspecies": return "App\\\\Specie";
+                case "species": return "App\\\\Specie";
+                case "genus": return "App\\\\SpecieGenus";
+                case "family": return "App\\\\SpecieFamily";
+                case "order": return "App\\\\SpecieOrder";
+                case "class": return "App\\\\SpecieClass";
+                case "phylum": return "App\\\\SpeciePhylum";
+            }
+
+            return "@INVALID";
+        }
+
+        public string ResourceTable()
+        {
+            switch (this.Rank)
+            {
+                case "subspecies": return "species";
+                case "species": return "species";
+                case "genus": return "specie_genera";
+                case "family": return "specie_families";
+                case "order": return "specie_orders";
+                case "class": return "specie_classes";
+                case "phylum": return "specie_phyla";
+            }
+
+            return "@INVALID";
+        }
+
+        public string ResourceValue()
+        {
+            switch (this.Rank)
+            {
+                case "subspecies": return this.Subspecie;
+                case "species": return this.Specie;
+                case "genus": return this.Genus;
+                case "family": return this.Family;
+                case "order": return this.Order;
+                case "class": return this.Class;
+                case "phylum": return this.Phylum;
+            }
+
+            return "@INVALID";
+        }
+
+        public string EnglishList()
+        {
+            return "\"" + string.Join("\", \"", this.AltNames) + "\"";
+        }
+
+        public string SynonymList()
+        {
+            if (this.Rank != "species" && this.Rank != "subspecies") return "";
+
+            int words = this.Rank == "species" ? 2 : 3;
+
+
+            return "\"" + string.Join("\", \"", this.SynonymNames.Select(synonym => string.Join(" ", synonym.Split().Take(words)))) + "\"";
         }
 
         public void Output()
         {
-            Console.WriteLine($"INSERT INTO regulations (" +
-                    $"`source`, `source_id`, `listing`, `rank`, " +
-                    $"`phylum_id`, `class_id`, `order_id`, `family_id`, `genus_id`, `specie_id`, `subspecie_id`" +
-                $") SELECT " +
-                    $"'cites', {this.ID}, '{this.Listing}', '{this.Rank}', " +
-                    (this.Phylum == null ? "null, " : $"IFNULL((SELECT id from specie_phyla WHERE `scientific` = '{this.Phylum}'), 0), ") +
-                    (this.Class == null ? "null, " : $"IFNULL((SELECT id from specie_classes WHERE `scientific` = '{this.Class}'), 0), ") +
-                    (this.Order == null ? "null, " : $"IFNULL((SELECT id from specie_orders WHERE `scientific` = '{this.Order}'), 0), ") +
-                    (this.Family == null ? "null, " : $"IFNULL((SELECT id from specie_families WHERE `scientific` = '{this.Family}'), 0), ") +
-                    (this.Genus == null ? "null, " : $"IFNULL((SELECT id from specie_genera WHERE `scientific` = '{this.Genus}'), 0), ") +
-                    (this.Specie == null ? "null, " : $"IFNULL((SELECT id from species WHERE `scientific` = '{this.Specie}'), 0), ") +
-                    (this.Subspecie == null ? "null;" : $"IFNULL((SELECT id from species WHERE `scientific` = '{this.Subspecie}'), 0);")
-            );
+            Console.WriteLine($"SET @base = (SELECT id FROM {this.ResourceTable()} WHERE scientific = '{this.ResourceValue()}');");
+            Console.WriteLine($"SET @rename = (SELECT id FROM {this.ResourceTable()} WHERE scientific LIKE '%{this.ResourceValue().Split().Last()}' HAVING COUNT(*) = 1);");
+
+            string query = "IFNULL(@base, IFNULL(@rename, {value}))";
+            string binding = "IF(@base, 'scientific', IF(@rename, 'rename', {value}))";
+
+            if (this.SynonymNames.Length != 0)
+            {
+                Console.WriteLine($"SET @synonym = (SELECT id FROM {this.ResourceTable()} WHERE scientific IN ({this.SynonymList()}) HAVING COUNT(*) = 1);");
+                query = query.Replace("{value}", "IFNULL(@synonym, {value})");
+                binding = binding.Replace("{value}", "IF(@synonym, 'synonym', {value})");
+            }
+
+            if (this.AltNames.Length != 0)
+            {
+                Console.WriteLine($"SET @english = (SELECT id FROM {this.ResourceTable()} WHERE english_name IN ({this.EnglishList()}) HAVING COUNT(*) = 1);");
+                query = query.Replace("{value}", "IFNULL(@english, {value})");
+                binding = binding.Replace("{value}", "IF(@synonym, 'english', {value})");
+            }
+
+            query = query.Replace("{value}", "NULL");
+            binding = binding.Replace("{value}", "NULL");
+
+            Console.WriteLine("INSERT INTO regulations (`source`, `source_id`, `resource_id`, `resource_type`, `name`, `listing`, `binding`) SELECT " +
+                $"'cites', {this.ID}, {query}, '{this.ResourceType()}', '{this.ResourceValue()}', '{this.Listing}', {binding}" +
+                
+            ";");
         }
     }
 }

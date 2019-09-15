@@ -38,13 +38,15 @@ namespace CitesChecklistParser
                 string genusName = entry.genus_name;
                 string specieName = entry.species_name;
                 string subspecieName = entry.subspecies_name;
+                string[] englishNames = entry.english_names.ToObject<string[]>();
+                string[] synonymNames = entry.synonyms_with_authors.ToObject<string[]>();
 
                 // Create new regulation instance.
                 Regulation regulation = new Regulation(
                     id, listing, rank.ToLower(),
                     phylumName, className, orderName,
                     familyName, genusName, specieName,
-                    subspecieName
+                    subspecieName, englishNames, synonymNames
                 );
 
                 // Add created modal to list.
@@ -57,14 +59,8 @@ namespace CitesChecklistParser
             // Output query charset.
             Console.WriteLine("SET NAMES utf8;");
 
-            // Disable foreign key checks.
-            Console.WriteLine("SET FOREIGN_KEY_CHECKS = 0;");
-
             // Output the regulation rows.
             foreach (Regulation regulation in this.Regulations) regulation.Output();
-
-            // Re-enable foreign key checks.
-            Console.WriteLine("SET FOREIGN_KEY_CHECKS = 1;");
         }
     }
 }
