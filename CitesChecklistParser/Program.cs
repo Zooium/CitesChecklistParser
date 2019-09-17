@@ -61,6 +61,27 @@ namespace CitesChecklistParser
 
             // Output the regulation rows.
             foreach (Regulation regulation in this.Regulations) regulation.Output();
+
+            // Delete duplicate relations.
+            Console.WriteLine("" +
+                "DELETE a FROM regulations a INNER JOIN regulations b WHERE " +
+                    "a.id > b.id AND " +
+                    "a.source = b.source AND " +
+                    "a.source_id = b.source_id AND " +
+                    "a.resource_id = b.resource_id;"
+            );
+
+            // Delete missing non-default synonyms.
+            Console.WriteLine("" +
+                "DELETE a FROM regulations a WHERE " +
+                    "a.resource_id IS NULL AND " +
+                    "a.id != (" +
+                        "SELECT id FROM (SELECT * FROM regulations) b WHERE " +
+                            "a.source = b.source AND " +
+                            "a.source_id = b.source_id " +
+                            "LIMIT 1" +
+                    "); "
+            );
         }
     }
 }

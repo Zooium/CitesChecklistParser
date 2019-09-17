@@ -26,9 +26,9 @@ namespace CitesChecklistParser
 
         public string Subspecie { get; set; }
 
-        public string[] AltNames { get; set; }
+        public List<string> AltNames { get; set; }
 
-        public string[] SynonymNames { get; set; }
+        public List<string> SynonymNames { get; set; }
 
         public Regulation(int ID, string Listing, string Rank, string Phylum, string Class, string Order, string Family, string Genus, string Specie, string Subspecie, string[] AltNames, string[] SynonymNames)
         {
@@ -42,8 +42,27 @@ namespace CitesChecklistParser
             this.Genus = Genus;
             this.Specie = Specie != null ? Genus + " " + Specie : null;
             this.Subspecie = Subspecie != null ? Genus + " " + Specie + " " + Subspecie : null;
-            this.AltNames = AltNames;
-            this.SynonymNames = SynonymNames;
+            this.AltNames = new List<string>(AltNames);
+
+            // Loop through the passed synonyms.
+            this.SynonymNames = new List<string>();
+            foreach (string synonym in SynonymNames)
+            {
+                // Add 2-3 words to list if specie or subspecie.
+                if (this.Rank == "species" || this.Rank == "subspecies")
+                {
+                    this.SynonymNames.Add(string.Join(" ", synonym.Split().Take(2)));
+                    this.SynonymNames.Add(string.Join(" ", synonym.Split().Take(3)));
+
+                    continue;
+                }
+
+                // Add first word to list.
+                this.SynonymNames.Add(synonym.Split().Take(1).First());
+            }
+
+            // Add base name to start of synonyms.
+            this.SynonymNames.Insert(0, this.ResourceValue());
         }
 
         public string ResourceType()
@@ -94,50 +113,23 @@ namespace CitesChecklistParser
             return "@INVALID";
         }
 
-        public string EnglishList()
-        {
-            return "\"" + string.Join("\", \"", this.AltNames) + "\"";
-        }
-
-        public string SynonymList()
-        {
-            if (this.Rank != "species" && this.Rank != "subspecies") return "";
-
-            int words = this.Rank == "species" ? 2 : 3;
-
-
-            return "\"" + string.Join("\", \"", this.SynonymNames.Select(synonym => string.Join(" ", synonym.Split().Take(words)))) + "\"";
-        }
-
         public void Output()
         {
-            Console.WriteLine($"SET @base = (SELECT id FROM {this.ResourceTable()} WHERE scientific = '{this.ResourceValue()}');");
-            Console.WriteLine($"SET @rename = (SELECT id FROM {this.ResourceTable()} WHERE scientific LIKE '%{this.ResourceValue().Split().Last()}' HAVING COUNT(*) = 1);");
-
-            string query = "IFNULL(@base, IFNULL(@rename, {value}))";
-            string binding = "IF(@base, 'scientific', IF(@rename, 'rename', {value}))";
-
-            if (this.SynonymNames.Length != 0)
+            int index = 0;
+            foreach (string synonym in this.SynonymNames.Where(words => ! words.Contains("(")).Distinct())
             {
-                Console.WriteLine($"SET @synonym = (SELECT id FROM {this.ResourceTable()} WHERE scientific IN ({this.SynonymList()}) HAVING COUNT(*) = 1);");
-                query = query.Replace("{value}", "IFNULL(@synonym, {value})");
-                binding = binding.Replace("{value}", "IF(@synonym, 'synonym', {value})");
+                Console.WriteLine($"SET @base = (SELECT id FROM {this.ResourceTable()} WHERE scientific = \"{synonym}\");");
+                Console.WriteLine($"SET @rename = (SELECT id FROM {this.ResourceTable()} WHERE scientific LIKE \"%{synonym.Split().Last()}\" HAVING COUNT(*) = 1);");
+
+                string query = "IFNULL(@base, @rename)";
+                string binding = "IF(@base, '" + (index == 0 ? "scientific" : "synonym") + "', IF(@rename, '" + (index == 0 ? "rename" : "synonym-rename") + "', NULL))";
+
+                Console.WriteLine("INSERT INTO regulations (`source`, `source_id`, `resource_id`, `resource_type`, `name`, `listing`, `binding`) SELECT " +
+                    $"'cites', {this.ID}, {query}, '{this.ResourceType()}', \"{synonym}\", '{this.Listing}', {binding}" +
+                ";");
+
+                index++;
             }
-
-            if (this.AltNames.Length != 0)
-            {
-                Console.WriteLine($"SET @english = (SELECT id FROM {this.ResourceTable()} WHERE english_name IN ({this.EnglishList()}) HAVING COUNT(*) = 1);");
-                query = query.Replace("{value}", "IFNULL(@english, {value})");
-                binding = binding.Replace("{value}", "IF(@synonym, 'english', {value})");
-            }
-
-            query = query.Replace("{value}", "NULL");
-            binding = binding.Replace("{value}", "NULL");
-
-            Console.WriteLine("INSERT INTO regulations (`source`, `source_id`, `resource_id`, `resource_type`, `name`, `listing`, `binding`) SELECT " +
-                $"'cites', {this.ID}, {query}, '{this.ResourceType()}', '{this.ResourceValue()}', '{this.Listing}', {binding}" +
-                
-            ";");
         }
     }
 }
