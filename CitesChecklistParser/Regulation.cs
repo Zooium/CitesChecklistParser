@@ -116,7 +116,7 @@ namespace CitesChecklistParser
         public void Output()
         {
             int index = 0;
-            foreach (string synonym in this.SynonymNames.Where(words => ! words.Contains("(")).Distinct())
+            foreach (string synonym in this.SynonymNames.Where(word => word.Count(c => char.IsUpper(c)) == 1).Distinct())
             {
                 Console.WriteLine($"SET @base = (SELECT id FROM {this.ResourceTable()} WHERE scientific = \"{synonym}\");");
                 Console.WriteLine($"SET @rename = (SELECT id FROM {this.ResourceTable()} WHERE scientific LIKE \"%{synonym.Split().Last()}\" HAVING COUNT(*) = 1);");
